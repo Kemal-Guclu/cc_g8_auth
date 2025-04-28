@@ -1,4 +1,3 @@
-// Denna modul hanterar autentisering och auktorisering med hjälp av JSON Web Tokens (JWT) och innehåller funktioner för att generera och verifiera JWT-tokens.
 import jwt from "jsonwebtoken";
 
 const SECRET = process.env.JWT_SECRET || "your-secret-key";
@@ -16,3 +15,5 @@ export const generateToken = (user: {
 export const verifyToken = (token: string) => {
   return jwt.verify(token, SECRET);
 };
+// This function generates a JWT token for the user with the given id, email, and role.
+// The token is signed with a secret key and expires in 1 hour.
