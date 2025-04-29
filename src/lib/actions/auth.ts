@@ -1,12 +1,57 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { generateToken } from "@/lib/jwt";
+import { generateToken, verifyToken } from "@/lib/jwt";
 import { cookies } from "next/headers";
 import bcrypt from "bcrypt";
 import { loginSchema, registerSchema } from "@/lib/schemas";
 import { redirect } from "next/navigation";
-import { verifyToken } from "@/lib/jwt";
+
+// Typ för JWT-payload
+type JWTPayload = {
+  id: number;
+  email: string;
+  role: string;
+};
+
+// Server Action för att hämta användare och projekt
+export async function getUserAndProjects() {
+  const token = (await cookies()).get("token")?.value;
+  if (!token) {
+    throw new Error("Ingen giltig token");
+  }
+
+  let decoded: JWTPayload;
+  try {
+    decoded = verifyToken(token) as JWTPayload;
+  } catch {
+    throw new Error("Ogiltig eller utgången token");
+  }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: decoded.id },
+    include: { role: true },
+  });
+
+  if (!dbUser) {
+    throw new Error("Användaren hittades inte");
+  }
+
+  const userProjects = await prisma.project.findMany({
+    where: { userId: dbUser.id },
+  });
+
+  return {
+    user: {
+      id: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+      avatar: dbUser.avatar,
+      role: dbUser.role.name,
+    },
+    projects: userProjects,
+  };
+}
 
 export async function login(formData: FormData) {
   const data = Object.fromEntries(formData);
@@ -38,6 +83,19 @@ export async function login(formData: FormData) {
     return { error: "Felaktig e-post eller lösenord" };
   }
 
+  // 2FA för admin-användare (grundläggande struktur)
+  if (user.role.name === "ADMIN") {
+    // Här skulle vi normalt skicka en 2FA-kod till e-post eller app
+    // För enkelhetens skull, hoppar vi över detta i denna lösning
+    // Men strukturen finns för framtida implementering
+    const twoFactorEnabled = true; // Skulle normalt vara en kolumn i user-tabellen
+    if (twoFactorEnabled) {
+      // Skicka 2FA-kod och spara i databasen
+      // Vänta på att användaren anger koden
+      console.log("2FA krävs för admin-användare");
+    }
+  }
+
   const token = generateToken({
     id: user.id,
     email: user.email,
@@ -49,6 +107,18 @@ export async function login(formData: FormData) {
     secure: true,
     maxAge: 3600,
   });
+
+  // Logga inloggning för admin-användare
+  if (user.role.name === "ADMIN") {
+    await prisma.adminLog.create({
+      data: {
+        action: "LOGIN",
+        userId: user.id,
+        details: `Admin-användare loggade in: ${email}`,
+        timestamp: new Date(),
+      },
+    });
+  }
 
   return {
     success: true,
@@ -78,7 +148,6 @@ export async function register(formData: FormData) {
     return { error: "E-postadressen används redan" };
   }
 
-  // Hämta eller skapa "USER"-rollen
   let userRole = await prisma.role.findUnique({ where: { name: "USER" } });
   if (!userRole) {
     userRole = await prisma.role.create({
@@ -86,7 +155,6 @@ export async function register(formData: FormData) {
     });
   }
 
-  // Hämta eller skapa "ADMIN"-rollen (men användaren får USER-rollen vid registrering)
   let adminRole = await prisma.role.findUnique({ where: { name: "ADMIN" } });
   if (!adminRole) {
     adminRole = await prisma.role.create({
@@ -101,23 +169,17 @@ export async function register(formData: FormData) {
       password: hashedPassword,
       name,
       avatar: avatar || null,
-      roleId: userRole.id, // Vanliga användare får "USER"-rollen
+      roleId: userRole.id,
       isVerified: false,
     },
   });
 
-  // Skapa ett tomt projekt för den nya användaren
   await prisma.project.create({
     data: {
       name: "Mitt första projekt",
       userId: user.id,
     },
   });
-
-  // Logga in användaren automatiskt
-  if (!userRole) {
-    throw new Error("User role not found");
-  }
 
   if (!userRole) {
     throw new Error("User role not found");
@@ -126,11 +188,7 @@ export async function register(formData: FormData) {
   const token = generateToken({
     id: user.id,
     email: user.email,
-    role:
-      userRole?.name ??
-      (() => {
-        throw new Error("User role is null");
-      })(),
+    role: userRole?.name ?? "UNKNOWN",
   });
 
   (await cookies()).set("token", token, {
@@ -154,7 +212,6 @@ export async function register(formData: FormData) {
   };
 }
 
-// Funktion för att hämta alla användare (endast för admin)
 export async function getAllUsers() {
   const token = (await cookies()).get("token")?.value;
   if (!token) {
@@ -165,7 +222,7 @@ export async function getAllUsers() {
     id: number;
     email: string;
     role: string;
-    [key: string]: string | number | boolean; // Specify allowed property types
+    [key: string]: string | number | boolean;
   }
 
   const decodedToken = verifyToken(token);
@@ -189,6 +246,15 @@ export async function getAllUsers() {
     },
   });
 
+  await prisma.adminLog.create({
+    data: {
+      action: "GET_ALL_USERS",
+      userId: decoded.id,
+      details: `Admin hämtade alla användare`,
+      timestamp: new Date(),
+    },
+  });
+
   return users.map((user) => ({
     id: user.id,
     email: user.email,
@@ -200,7 +266,6 @@ export async function getAllUsers() {
   }));
 }
 
-// Funktion för att hämta alla projekt (endast för admin)
 export async function getAllProjects() {
   const token = (await cookies()).get("token")?.value;
   if (!token) {
@@ -211,7 +276,7 @@ export async function getAllProjects() {
     id: number;
     email: string;
     role: string;
-    [key: string]: string | number | boolean; // Specify allowed property types
+    [key: string]: string | number | boolean;
   }
 
   const decodedToken = verifyToken(token);
@@ -225,6 +290,15 @@ export async function getAllProjects() {
 
   const projects = await prisma.project.findMany({
     include: { user: { include: { role: true } } },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "GET_ALL_PROJECTS",
+      userId: decoded.id,
+      details: `Admin hämtade alla projekt`,
+      timestamp: new Date(),
+    },
   });
 
   return projects.map((project) => ({
@@ -241,7 +315,6 @@ export async function getAllProjects() {
   }));
 }
 
-// Funktion för att ta bort en användare (endast för admin)
 export async function deleteUser(userId: number) {
   const token = (await cookies()).get("token")?.value;
   if (!token) {
@@ -252,7 +325,7 @@ export async function deleteUser(userId: number) {
     id: number;
     email: string;
     role: string;
-    [key: string]: string | number | boolean; // Specify allowed property types
+    [key: string]: string | number | boolean;
   }
 
   const decodedToken = verifyToken(token);
@@ -268,10 +341,18 @@ export async function deleteUser(userId: number) {
     where: { id: userId },
   });
 
+  await prisma.adminLog.create({
+    data: {
+      action: "DELETE_USER",
+      userId: decoded.id,
+      details: `Admin tog bort användare med ID: ${userId}`,
+      timestamp: new Date(),
+    },
+  });
+
   return { success: true };
 }
 
-// Funktion för att ta bort ett projekt (endast för admin)
 export async function deleteProject(projectId: number) {
   const token = (await cookies()).get("token")?.value;
   if (!token) {
@@ -282,7 +363,7 @@ export async function deleteProject(projectId: number) {
     id: number;
     email: string;
     role: string;
-    [key: string]: string | number | boolean; // Specify allowed property types
+    [key: string]: string | number | boolean;
   }
 
   const decodedToken = verifyToken(token);
@@ -298,11 +379,43 @@ export async function deleteProject(projectId: number) {
     where: { id: projectId },
   });
 
+  await prisma.adminLog.create({
+    data: {
+      action: "DELETE_PROJECT",
+      userId: decoded.id,
+      details: `Admin tog bort projekt med ID: ${projectId}`,
+      timestamp: new Date(),
+    },
+  });
+
   return { success: true };
 }
-// ... (tidigare kod)
 
 export async function createAdminUser(formData: FormData) {
+  if (process.env.DISABLE_CREATE_ADMIN === "true") {
+    throw new Error("Skapande av admin-användare är inaktiverat");
+  }
+  const token = (await cookies()).get("token")?.value;
+  if (!token) {
+    throw new Error("Ingen giltig token");
+  }
+
+  interface DecodedToken {
+    id: number;
+    email: string;
+    role: string;
+    [key: string]: string | number | boolean;
+  }
+
+  const decodedToken = verifyToken(token);
+  if (typeof decodedToken === "string") {
+    throw new Error("Invalid token format");
+  }
+  const decoded: DecodedToken = decodedToken as DecodedToken;
+  if (decoded.role !== "ADMIN") {
+    throw new Error("Endast admin kan skapa nya admin-användare");
+  }
+
   const data = Object.fromEntries(formData);
   const parsed = registerSchema.safeParse(data);
 
@@ -331,25 +444,30 @@ export async function createAdminUser(formData: FormData) {
       password: hashedPassword,
       name,
       avatar: avatar || null,
-      roleId: adminRole.id, // Sätt till "ADMIN"-rollen
-      isVerified: true, // Admin-användaren är verifierad direkt
+      roleId: adminRole.id,
+      isVerified: true,
     },
   });
 
-  const token = generateToken({
+  const adminToken = generateToken({
     id: user.id,
     email: user.email,
-    role:
-      adminRole?.name ??
-      (() => {
-        throw new Error("Admin role is null");
-      })(),
+    role: adminRole?.name ?? "UNKNOWN",
   });
 
-  (await cookies()).set("token", token, {
+  (await cookies()).set("token", adminToken, {
     httpOnly: true,
     secure: true,
     maxAge: 3600,
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "CREATE_ADMIN",
+      userId: decoded.id,
+      details: `Admin skapade ny admin-användare med e-post: ${email}`,
+      timestamp: new Date(),
+    },
   });
 
   redirect("/admin");

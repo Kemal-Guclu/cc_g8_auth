@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   getAllUsers,
   getAllProjects,
   deleteUser,
   deleteProject,
+  getUserAndProjects,
 } from "@/lib/actions/auth";
 
 export default function AdminPage() {
@@ -16,7 +18,6 @@ export default function AdminPage() {
     role: string;
   }
 
-  const [users, setUsers] = useState<User[]>([]);
   interface Project {
     id: number;
     name: string;
@@ -27,12 +28,24 @@ export default function AdminPage() {
     };
   }
 
+  const [users, setUsers] = useState<User[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
-    const fetchData = async () => {
+    const checkUserRole = async () => {
       try {
+        const { user } = await getUserAndProjects();
+        if (user.role !== "ADMIN") {
+          setError("Endast admin-användare kan komma åt denna sida");
+          router.push("/dashboard");
+          return;
+        }
+        setIsAdmin(true);
+
         const usersData = await getAllUsers();
         const projectsData = await getAllProjects();
         setUsers(usersData);
@@ -40,14 +53,17 @@ export default function AdminPage() {
       } catch (err: unknown) {
         if (err instanceof Error) {
           setError(err.message);
+          router.push("/login");
         } else {
-          setError("An unknown error occurred");
+          setError("Ett oväntat fel inträffade");
         }
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchData();
-  }, []);
+    checkUserRole();
+  }, [router]);
 
   const handleDeleteUser = async (userId: number) => {
     try {
@@ -57,7 +73,7 @@ export default function AdminPage() {
       if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError("An unknown error occurred");
+        setError("Ett oväntat fel inträffade");
       }
     }
   };
@@ -70,10 +86,26 @@ export default function AdminPage() {
       if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError("An unknown error occurred");
+        setError("Ett oväntat fel inträffade");
       }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <p>Laddar...</p>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <p className="text-red-500">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-8 bg-gray-900 text-white">

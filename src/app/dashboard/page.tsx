@@ -1,51 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { cookies } from "next/headers";
-import { verifyToken } from "@/lib/jwt";
-import { prisma } from "@/lib/prisma";
+import { getUserAndProjects } from "@/lib/actions/auth";
+
+type User = {
+  id: number;
+  email: string;
+  name: string;
+  avatar: string | null;
+  role: string;
+};
+
+type Project = {
+  id: number;
+  name: string;
+  createdAt: Date;
+};
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<any>(null);
-  const [projects, setProjects] = useState<any[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUserAndProjects = async () => {
       try {
-        const token = document.cookie
-          .split("; ")
-          .find((row) => row.startsWith("token="))
-          ?.split("=")[1];
-
-        if (!token) {
-          throw new Error("Ingen giltig token");
+        const { user, projects } = await getUserAndProjects();
+        setUser(user);
+        setProjects(projects);
+      } catch (err: unknown) {
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError("An unknown error occurred.");
         }
-
-        const decoded: any = verifyToken(token);
-        const dbUser = await prisma.user.findUnique({
-          where: { id: decoded.id },
-          include: { role: true },
-        });
-
-        if (!dbUser) {
-          throw new Error("Användaren hittades inte");
-        }
-
-        const userProjects = await prisma.project.findMany({
-          where: { userId: dbUser.id },
-        });
-
-        setUser({
-          id: dbUser.id,
-          email: dbUser.email,
-          name: dbUser.name,
-          avatar: dbUser.avatar,
-          role: dbUser.role.name,
-        });
-        setProjects(userProjects);
-      } catch (err: any) {
-        setError(err.message);
       }
     };
 

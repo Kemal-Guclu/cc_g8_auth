@@ -37,6 +37,7 @@ model User {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   projects              Project[] // Relation till projekt
+  adminLogs             AdminLog[] // Relation to AdminLog
 }
 
 model Project {
@@ -47,3 +48,11 @@ user      User     @relation(fields: [userId], references: [id])
 createdAt DateTime @default(now())
 updatedAt DateTime @updatedAt
 }
+model AdminLog { 
+  id Int @id @default(autoincrement())
+  action String 
+  userId Int 
+  user User @relation(fields: [userId], references: [id]) 
+  details String 
+  timestamp DateTime @default(now()) 
+  }

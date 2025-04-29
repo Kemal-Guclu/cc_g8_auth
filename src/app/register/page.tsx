@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerSchema, RegisterFormData } from "@/lib/schemas";
@@ -11,6 +13,7 @@ import { useState } from "react";
 export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
+  const router = useRouter();
 
   const {
     register: formRegister,
@@ -34,6 +37,31 @@ export default function RegisterPage() {
       setError(result.error);
     } else {
       setSuccess(true);
+      router.push("/dashboard");
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const result = await signIn("google", {
+        redirect: false,
+        callbackUrl: "/dashboard",
+      });
+      if (result?.error) {
+        setError("Fel vid registrering med Google: " + result.error);
+      } else if (result?.url) {
+        router.push(result.url);
+      } else {
+        setError("Ingen redirect-URL returnerades från Google-registrering");
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(
+          "Ett oväntat fel inträffade vid Google-registrering: " + err.message
+        );
+      } else {
+        setError("Ett oväntat fel inträffade vid Google-registrering.");
+      }
     }
   };
 
@@ -43,18 +71,17 @@ export default function RegisterPage() {
         <h2 className="text-2xl font-bold text-center mb-4">Skapa ett konto</h2>
 
         <button
-          onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+          onClick={handleGoogleSignIn}
           className="w-full bg-white border border-gray-300 text-gray-700 py-2 rounded-full flex items-center justify-center mb-3"
         >
-          <img src="/google-icon.png" alt="Google" className="w-5 h-5 mr-2" />
+          <Image
+            src="/google-icon.png"
+            alt="Google"
+            width={20}
+            height={20}
+            className="w-5 h-5 mr-2"
+          />
           Registrera med Google
-        </button>
-
-        <button
-          onClick={() => signIn("facebook", { callbackUrl: "/dashboard" })}
-          className="w-full bg-blue-600 text-white py-2 rounded-full mb-3"
-        >
-          Registrera med Facebook
         </button>
 
         <div className="flex items-center justify-center my-4">
